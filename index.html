@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>랜덤 뉴스</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1d1d1f; --muted:#6b6b70; --accent:#c2410c; --line:#e5e2da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161618; --card:#222225; --ink:#f2f2f2; --muted:#a0a0a8; --accent:#fb923c; --line:#33333a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 14px 22px; font-size: 16px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  #status { color: var(--muted); margin: 16px 0; min-height: 1.4em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .card img { width: 100%; max-height: 320px; object-fit: cover; display: block; }
+  .body { padding: 20px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .tag { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .card h2 { font-size: 21px; line-height: 1.4; margin: 0 0 14px; word-break: break-word; }
+  .links a { color: var(--accent); margin-right: 16px; font-weight: 600; text-decoration: none; }
+  .links a:hover { text-decoration: underline; }
+  .domain { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎲 랜덤 뉴스</h1>
+  <p class="sub">랜덤 지역, 랜덤 날짜(2017년 이후)에 나온 뉴스 기사의 제목과 링크를 보여줍니다.</p>
+  <button id="go">기사 뽑기</button>
+  <div id="status"></div>
+  <div id="result"></div>
+  <footer>데이터: GDELT Project DOC API · 요청은 5초에 한 번으로 제한됩니다.</footer>
+</main>
+<script>
+// 나라별로 공신력 있는 주요 언론사(통신사·공영방송·주요 일간지)만 사용
+const COUNTRIES = [
+  ["대한민국", ["yna.co.kr","kbs.co.kr","hani.co.kr","donga.com","koreaherald.com","koreatimes.co.kr"]],
+  ["일본", ["nhk.or.jp","asahi.com","mainichi.jp","nikkei.com","japantimes.co.jp","kyodonews.net"]],
+  ["대만", ["focustaiwan.tw","cna.com.tw","taipeitimes.com"]],
+  ["홍콩", ["scmp.com","rthk.hk"]],
+  ["미국", ["apnews.com","reuters.com","nytimes.com","washingtonpost.com","npr.org","wsj.com"]],
+  ["캐나다", ["cbc.ca","theglobeandmail.com","thestar.com"]],
+  ["멕시코", ["eluniversal.com.mx","jornada.com.mx","milenio.com"]],
+  ["브라질", ["folha.uol.com.br","estadao.com.br","oglobo.globo.com","g1.globo.com"]],
+  ["아르헨티나", ["clarin.com","lanacion.com.ar","infobae.com"]],
+  ["영국", ["bbc.co.uk","theguardian.com","ft.com","independent.co.uk","telegraph.co.uk"]],
+  ["아일랜드", ["rte.ie","irishtimes.com"]],
+  ["프랑스", ["lemonde.fr","lefigaro.fr","francetvinfo.fr","liberation.fr","france24.com"]],
+  ["독일", ["spiegel.de","zeit.de","faz.net","sueddeutsche.de","tagesschau.de","dw.com"]],
+  ["이탈리아", ["corriere.it","repubblica.it","ansa.it","lastampa.it"]],
+  ["스페인", ["elpais.com","elmundo.es","rtve.es","lavanguardia.com"]],
+  ["네덜란드", ["nos.nl","nrc.nl","volkskrant.nl"]],
+  ["스웨덴", ["svt.se","dn.se","svd.se"]],
+  ["노르웨이", ["nrk.no","aftenposten.no"]],
+  ["폴란드", ["tvn24.pl","rp.pl","wyborcza.pl"]],
+  ["우크라이나", ["ukrinform.net","pravda.com.ua","kyivindependent.com"]],
+  ["이스라엘", ["haaretz.com","timesofisrael.com","jpost.com"]],
+  ["카타르", ["aljazeera.com"]],
+  ["인도", ["thehindu.com","indianexpress.com","hindustantimes.com"]],
+  ["싱가포르", ["straitstimes.com","channelnewsasia.com"]],
+  ["필리핀", ["inquirer.net","rappler.com","philstar.com"]],
+  ["태국", ["bangkokpost.com","nationthailand.com"]],
+  ["인도네시아", ["kompas.com","thejakartapost.com","tempo.co"]],
+  ["베트남", ["vnexpress.net","tuoitre.vn"]],
+  ["말레이시아", ["thestar.com.my","malaymail.com"]],
+  ["호주", ["abc.net.au","smh.com.au","theage.com.au"]],
+  ["뉴질랜드", ["rnz.co.nz","nzherald.co.nz","stuff.co.nz"]],
+  ["남아프리카공화국", ["news24.com","dailymaverick.co.za","iol.co.za"]],
+  ["케냐", ["nation.africa","standardmedia.co.ke"]],
+  ["나이지리아", ["premiumtimesng.com","punchng.com","vanguardngr.com"]]
+];
+const START = Date.UTC(2017, 0, 1);
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const fmt = d => d.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+let lastReq = 0;
+
+async function gdelt(domains, from, to) {
+  const wait = 5500 - (Date.now() - lastReq);
+  if (wait > 0) await sleep(wait);
+  lastReq = Date.now();
+  const url = "https://api.gdeltproject.org/api/v2/doc/doc?query=" +
+    encodeURIComponent(domains.length > 1
+      ? "(" + domains.map(d => "domain:" + d).join(" OR ") + ")"
+      : "domain:" + domains[0]) +
+    `&mode=artlist&maxrecords=75&format=json&sort=datedesc&startdatetime=${fmt(from)}&enddatetime=${fmt(to)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const text = await res.text();
+  if (!text.trim().startsWith("{")) return [];
+  return JSON.parse(text).articles || [];
+}
+
+function render(a, name, from) {
+  const s = a.seendate; // 20190305T113000Z
+  const when = new Date(Date.UTC(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8), +s.slice(9,11), +s.slice(11,13)));
+  const whenStr = when.toLocaleDateString("ko-KR", { dateStyle: "long" });
+  const esc = t => t.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  $("result").innerHTML = `
+    <article class="card">
+      <div class="body">
+        <div class="meta">
+          <span class="tag">📍 ${esc(name)}</span>
+          <span class="tag">📅 ${esc(whenStr)}</span>
+        </div>
+        <h2>${esc(a.title || "(제목 없음)")}</h2>
+        <div class="domain">${esc(a.domain)}</div>
+        <div class="links">
+          <a href="${esc(a.url)}" target="_blank" rel="noopener">기사 보러 가기 →</a>
+        </div>
+      </div>
+    </article>`;
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true;
+  $("result").innerHTML = "";
+  try {
+    for (let i = 1; i <= 4; i++) {
+      const [name, domains] = pick(COUNTRIES);
+      const days = Math.floor((Date.now() - 86400000 - START) / 86400000);
+      const from = new Date(START + Math.floor(Math.random() * days) * 86400000);
+      const to = new Date(from.getTime() + 86400000 - 1000); // 하루 전체
+      $("status").textContent = `${name}, ${from.toLocaleDateString("ko-KR")} 무렵의 뉴스를 찾는 중… (${i}/4)`;
+      let arts = [];
+      try { arts = await gdelt(domains, from, to); } catch (e) { console.warn(e); }
+      // domain: 검색은 부분 일치라서, 목록의 언론사(또는 그 하위 도메인)인지 한 번 더 확인
+      arts = arts.filter(a => a.title &&
+        domains.some(d => a.domain === d || a.domain.endsWith("." + d)));
+      if (arts.length) { render(pick(arts), name, from); $("status").textContent = ""; return; }
+    }
+    $("status").textContent = "기사를 찾지 못했어요. 다시 눌러 주세요.";
+  } finally {
+    $("go").disabled = false;
+  }
+};
+</script>
+</body>
+</html>
